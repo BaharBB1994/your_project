@@ -1,0 +1,231 @@
+---
+title: "Flights Report"
+author: "Bahar"
+date: "2025-09-28"
+output:
+  github_document:
+    toc: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("RMariaDB")
+
+```
+
+```{r}
+#install.packages("cli")
+library(cli)
+library(dplyr)  
+
+```
+
+2.How many rows are available in the Measurements table of the Smith College Wideband Auditory Immittance database?
+
+```{r}
+library(RMariaDB)
+con <- dbConnect(
+  MariaDB(), host = "scidb.smith.edu",
+  user = "waiuser", password = "smith_waiDB", 
+  dbname = "wai"
+)
+Measurements <- tbl(con, "Measurements")
+Measurements %>% count()
+
+
+```
+
+or
+
+```{r}
+n_rows <- Measurements %>% summarise(total = n())
+n_rows
+
+```
+
+or
+
+```{r}
+dbGetQuery(con, "SELECT COUNT(*) AS n FROM Measurements;")
+
+```
+
+3.Identify what years of data are available in the flights table of the airlines database.
+
+```{r}
+library(tidyverse)
+library(mdsr)
+library(RMariaDB)
+con <- dbConnect_scidb("airlines")
+db <- mdsr::dbConnect_scidb("airlines")
+flights <- tbl(db, "flights")
+dbGetQuery(con, "SELECT MIN(year), MAX(year) FROM flights;")
+
+```
+
+4.Use the dbConnect_scidb function to connect to the airlines database to answer the following problem.
+
+```{r}
+db <- mdsr::dbConnect_scidb("airlines")
+flights <- tbl(db, "flights")
+carriers <- tbl(db, "carriers")
+```
+
+4.1How many domestic flights flew into Dallas-Fort Worth (DFW) on May 14, 2015?
+
+```{r}
+dbGetQuery(con, "
+SELECT COUNT(*) AS n
+FROM flights
+WHERE year = 2015 AND month = 5 AND day = 14
+  AND dest = 'DFW';
+")
+
+```
+
+4.2 Of all the destinations from Chicago O’Hare (ORD), which were the most common in 2015?
+
+```{r}
+dbGetQuery(con, "
+SELECT dest, COUNT(*) AS numFlights
+FROM flights
+WHERE year = 2015 AND origin = 'ORD'
+GROUP BY dest
+ORDER BY numFlights DESC;
+")
+
+```
+
+4.3 Which airport had the highest average arrival delay time in 2015?
+
+```{r}
+dbGetQuery(con, "
+SELECT dest, AVG(arr_delay) AS avg_delay
+FROM flights
+WHERE year = 2015
+GROUP BY dest
+ORDER BY avg_delay DESC
+LIMIT 1;
+")
+
+```
+
+4.4How many domestic flights came into or flew out of Bradley Airport (BDL) in 2015?
+
+```{r}
+dbGetQuery(con, "
+SELECT COUNT(*) AS n
+FROM flights
+WHERE year = 2015
+  AND (origin = 'BDL' OR dest = 'BDL');
+")
+
+```
+
+4.5 List the airline and flight number for all flights between LAX and JFK on September 26th, 2015.
+
+```{r}
+dbGetQuery(con, "
+SELECT carrier, flight
+FROM flights
+WHERE year = 2015 AND month = 9 AND day = 26
+  AND ((origin = 'LAX' AND dest = 'JFK')
+    OR (origin = 'JFK' AND dest = 'LAX'));
+")
+
+```
+
+Wideband acoustic immittance (WAI) is an area of biomedical research that strives to develop WAI measurements as noninvasive auditory diagnostic tools. WAI measurements are reported in many related formats, including absorbance, admittance, impedance, power reflectance, and pressure reflectance. More information can be found about this public facing WAI database at <http://www.science.smith.edu/wai-database/home/about>.
+
+```{r}
+library(RMariaDB)
+db <- dbConnect(
+  MariaDB(), 
+  user = "waiuser", 
+  password = "smith_waiDB", 
+  host = "scidb.smith.edu", 
+  dbname = "wai"
+)
+
+```
+
+5.a How many female subjects are there in total across all studies?
+
+```{r}
+dbGetQuery(db, "
+SELECT COUNT(DISTINCT Identifier) AS num_females
+FROM Subjects
+WHERE Sex = 'F';
+")
+```
+
+5.b Find the average absorbance for participants for each study, ordered by highest to lowest value.
+
+```{r}
+dbGetQuery(db, "
+SELECT SubjectNumber, AVG(Absorbance) AS avg_absorbance
+FROM Measurements
+GROUP BY SubjectNumber
+ORDER BY avg_absorbance DESC;
+")
+
+```
+
+5.c Write a query to count all the measurements with a calculated absorbance of less than 0.
+
+```{r}
+dbGetQuery(db, "
+SELECT COUNT(*) AS num_negative
+FROM Measurements
+WHERE absorbance < 0;
+")
+
+```
+
+6.  The following open-ended question may require more than one query and a thoughtful response. Based on data from 2013 only, and assuming that transportation to the airport is not an issue, would you rather fly out of JFK, LaGuardia (LGA), or Newark (EWR)? Why or why not? Use the dbConnect_scidb function to connect to the airlines database.
+
+```{r}
+dbGetQuery(con, "
+SELECT origin, COUNT(*) AS numFlights, AVG(dep_delay) AS avg_dep_delay,
+       AVG(arr_delay) AS avg_arr_delay
+FROM flights
+WHERE year = 2013 AND origin IN ('JFK', 'LGA', 'EWR')
+GROUP BY origin;
+")
+
+```
+
+well, based on the above table, I think EWR is the worse one to choose because it has the highest delay in both departure and arrival. comparing JFK and LGA, I would prefer LGA beacuse it has less departure delay and the diffrence in arrival delay between LGA and JFK is 0.1 min which is not that large. so I think the my choice is LGA then JFK and then EWR. Also, Number of flights from EWR is larger than JFK and JFK is larger than LGA so there could be more destination to fly to from EWR to JFK.
+
+```{r}
+dbGetQuery(con, "
+SELECT origin, COUNT(*) AS numExclusiveDest
+FROM (
+    SELECT dest, origin
+    FROM flights
+    WHERE year = 2013 AND origin IN ('JFK','LGA','EWR')
+    GROUP BY dest, origin
+    HAVING COUNT(DISTINCT origin) = 1
+) AS exclusive
+GROUP BY origin;
+")
+
+```
+
+As you see there are 86 destination that is exclusively for EWR and then JFK and then LGA so I guess my answer would depend on where I am going too, the below code show us the list of these destinations:
+
+```{r}
+dbGetQuery(con, "
+SELECT origin, dest
+FROM flights
+WHERE year = 2013 AND origin IN ('JFK','LGA','EWR')
+GROUP BY origin, dest
+HAVING COUNT(DISTINCT origin) = 1
+ORDER BY origin, dest;
+")
+
+```
